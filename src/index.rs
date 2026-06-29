@@ -1,7 +1,7 @@
 //! Folder scanning and lightweight metadata extraction — title/tune discovery *without*
 //! rendering, so opening a folder is instant.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use walkdir::WalkDir;
 
@@ -111,6 +111,67 @@ fn lilypond_title(content: &str, path: &Path) -> String {
         }
     }
     file_name(path)
+}
+
+/// A node in the browsed directory tree. Built only from supported files, so directories
+/// that contain no `.ly`/`.abc` (anywhere in their subtree) never appear.
+#[derive(Default)]
+pub struct DirNode {
+    pub name: String,
+    pub dirs: Vec<DirNode>,
+    /// Indices into the scanned [`FileEntry`] list for files directly in this directory.
+    pub files: Vec<usize>,
+}
+
+/// Build a directory tree relative to `root` from the scanned entries.
+pub fn build_tree(root: &Path, entries: &[FileEntry]) -> DirNode {
+    let mut tree = DirNode {
+        name: root
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| root.display().to_string()),
+        ..Default::default()
+    };
+    for (i, e) in entries.iter().enumerate() {
+        let rel = e.path.strip_prefix(root).unwrap_or(e.path.as_path());
+        let comps: Vec<String> = rel
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect();
+        insert(&mut tree, &comps, i);
+    }
+    sort_tree(&mut tree);
+    tree
+}
+
+fn insert(node: &mut DirNode, comps: &[String], file_idx: usize) {
+    if comps.len() <= 1 {
+        node.files.push(file_idx);
+        return;
+    }
+    let dir = &comps[0];
+    let pos = match node.dirs.iter().position(|d| &d.name == dir) {
+        Some(p) => p,
+        None => {
+            node.dirs.push(DirNode {
+                name: dir.clone(),
+                ..Default::default()
+            });
+            node.dirs.len() - 1
+        }
+    };
+    insert(&mut node.dirs[pos], &comps[1..], file_idx);
+}
+
+fn sort_tree(node: &mut DirNode) {
+    node.dirs
+        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    for d in &mut node.dirs {
+        sort_tree(d);
+    }
 }
 
 #[cfg(test)]

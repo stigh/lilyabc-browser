@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use eframe::egui;
 
 use crate::engraver::RenderRequest;
-use crate::index::{self, FileEntry};
+use crate::index::{self, DirNode, FileEntry};
 use crate::model::RenderOutput;
 use crate::worker::RenderWorker;
 
@@ -29,6 +29,7 @@ pub struct App {
     worker: RenderWorker,
     folder: Option<PathBuf>,
     entries: Vec<FileEntry>,
+    tree: DirNode,
     selection: Option<Selection>,
     source: String,
     output: Option<RenderOutput>,
@@ -49,6 +50,7 @@ impl App {
             worker: RenderWorker::spawn(cc.egui_ctx.clone()),
             folder: None,
             entries: Vec::new(),
+            tree: DirNode::default(),
             selection: None,
             source: String::new(),
             output: None,
@@ -86,6 +88,7 @@ impl App {
 
     fn open_folder(&mut self, path: PathBuf, auto_select: bool) {
         self.entries = index::scan(&path);
+        self.tree = index::build_tree(&path, &self.entries);
         self.status = format!("{} file(s) in {}", self.entries.len(), path.display());
         self.folder = Some(path);
         self.selection = None;
@@ -156,34 +159,57 @@ impl App {
             return;
         }
         let mut clicked: Option<(usize, Option<u32>)> = None;
-        for (i, e) in self.entries.iter().enumerate() {
-            let label = format!("{}  ·  {}", e.title, e.format.label());
-            if e.tunes.is_empty() {
-                let selected = matches!(self.selection, Some(s) if s.entry == i && s.tune.is_none());
-                if ui.selectable_label(selected, label).clicked() {
-                    clicked = Some((i, None));
-                }
-            } else {
-                egui::CollapsingHeader::new(label)
-                    .id_salt(i)
-                    .show(ui, |ui| {
-                        for t in &e.tunes {
-                            let selected = matches!(
-                                self.selection,
-                                Some(s) if s.entry == i && s.tune == Some(t.number)
-                            );
-                            if ui
-                                .selectable_label(selected, format!("{}. {}", t.number, t.title))
-                                .clicked()
-                            {
-                                clicked = Some((i, Some(t.number)));
-                            }
-                        }
-                    });
-            }
-        }
+        self.dir_ui(&self.tree, ui, &mut clicked);
         if let Some((i, tune)) = clicked {
             self.select(i, tune);
+        }
+    }
+
+    /// Render a directory node: sub-folders (collapsed) first, then files.
+    fn dir_ui(
+        &self,
+        node: &DirNode,
+        ui: &mut egui::Ui,
+        clicked: &mut Option<(usize, Option<u32>)>,
+    ) {
+        for sub in &node.dirs {
+            egui::CollapsingHeader::new(format!("{}/", sub.name))
+                .id_salt(("dir", sub.name.as_str()))
+                .default_open(false)
+                .show(ui, |ui| self.dir_ui(sub, ui, clicked));
+        }
+        for &i in &node.files {
+            self.file_ui(i, ui, clicked);
+        }
+    }
+
+    /// Render a single file: a leaf for LilyPond, or an expandable tune list for ABC.
+    fn file_ui(&self, i: usize, ui: &mut egui::Ui, clicked: &mut Option<(usize, Option<u32>)>) {
+        let Some(e) = self.entries.get(i) else {
+            return;
+        };
+        if e.tunes.is_empty() {
+            let selected = matches!(self.selection, Some(s) if s.entry == i && s.tune.is_none());
+            if ui.selectable_label(selected, e.title.as_str()).clicked() {
+                *clicked = Some((i, None));
+            }
+        } else {
+            egui::CollapsingHeader::new(e.title.as_str())
+                .id_salt(("file", i))
+                .show(ui, |ui| {
+                    for t in &e.tunes {
+                        let selected = matches!(
+                            self.selection,
+                            Some(s) if s.entry == i && s.tune == Some(t.number)
+                        );
+                        if ui
+                            .selectable_label(selected, format!("{}. {}", t.number, t.title))
+                            .clicked()
+                        {
+                            *clicked = Some((i, Some(t.number)));
+                        }
+                    }
+                });
         }
     }
 
@@ -266,6 +292,7 @@ impl eframe::App for App {
                 if ui.button("Rescan").clicked() {
                     if let Some(folder) = self.folder.clone() {
                         self.entries = index::scan(&folder);
+                        self.tree = index::build_tree(&folder, &self.entries);
                         self.status = format!("Rescanned: {} file(s)", self.entries.len());
                     }
                 }
