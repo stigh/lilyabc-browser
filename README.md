@@ -15,7 +15,7 @@ Early development. See [`docs`/plan] for the milestone roadmap (M0 scaffold → 
 At **runtime** the app invokes these binaries (they are *not* bundled into the binary):
 
 - [`lilypond`](https://lilypond.org/) — renders `.ly`
-- [`abcm2ps`](https://github.com/lewdlume/abcm2ps) — renders `.abc`
+- [`abcm2ps`](https://github.com/lewdlime/abcm2ps) — renders `.abc`
 - `rsvg-convert` (librsvg) — rasterizes the engraver SVG (font-aware, so titles/text render)
 
 On Debian/Ubuntu: `sudo apt install lilypond abcm2ps librsvg2-bin`.
