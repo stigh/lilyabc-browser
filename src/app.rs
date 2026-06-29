@@ -194,7 +194,15 @@ impl App {
                 *clicked = Some((i, None));
             }
         } else {
-            egui::CollapsingHeader::new(e.title.as_str())
+            // Bold the file name when the whole file (no specific tune) is selected.
+            let file_selected =
+                matches!(self.selection, Some(s) if s.entry == i && s.tune.is_none());
+            let title = if file_selected {
+                egui::RichText::new(e.title.as_str()).strong()
+            } else {
+                egui::RichText::new(e.title.as_str())
+            };
+            let resp = egui::CollapsingHeader::new(title)
                 .id_salt(("file", i))
                 .show(ui, |ui| {
                     for t in &e.tunes {
@@ -210,6 +218,10 @@ impl App {
                         }
                     }
                 });
+            // Clicking the file row itself (not a tune) renders the whole file (all tunes).
+            if resp.header_response.clicked() {
+                *clicked = Some((i, None));
+            }
         }
     }
 
