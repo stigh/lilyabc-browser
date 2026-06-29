@@ -3,6 +3,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
+/// Rasterization zoom passed to `rsvg-convert` so zoomed-in scores stay crisp. The displayed
+/// scale is divided by [`Page::render_scale`] to compensate.
+pub const RENDER_SCALE: f32 = 2.0;
+
 /// A sheet-music source format this app can browse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
@@ -58,6 +62,8 @@ pub struct Page {
     /// Native size in px (from the SVG root, unit-converted at 96 dpi); 0.0 if unknown.
     pub width: f32,
     pub height: f32,
+    /// egui's intrinsic px ÷ natural px (RENDER_SCALE for a rasterized PNG, 1.0 for raw SVG).
+    pub render_scale: f32,
 }
 
 /// The result of running an engraver.

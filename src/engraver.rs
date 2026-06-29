@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::model::{Format, Page, PageKind, RenderOutput};
+use crate::model::{Format, Page, PageKind, RenderOutput, RENDER_SCALE};
 
 /// A single render request. The source text is rendered (rather than the file on disk) so
 /// the same path serves both the file viewer and the live-edit buffer.
@@ -59,7 +59,7 @@ fn render_lilypond(req: &RenderRequest, work: &Path) -> RenderOutput {
     out.diagnostics = log;
     out.pages = collect_svgs(work)
         .into_iter()
-        .filter_map(|p| read_page(&p, PageKind::Svg))
+        .filter_map(|p| read_page(&p))
         .collect();
     out.ok = ok && !out.pages.is_empty();
     out
@@ -87,7 +87,7 @@ fn render_abc(req: &RenderRequest, work: &Path) -> RenderOutput {
     out.diagnostics = log;
     out.pages = collect_svgs(work)
         .into_iter()
-        .filter_map(|p| read_page(&p, PageKind::Svg))
+        .filter_map(|p| read_page(&p))
         .collect();
     out.ok = ok && !out.pages.is_empty();
     out
@@ -129,21 +129,50 @@ fn collect_svgs(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// Read a rendered file into a content-addressed [`Page`].
-fn read_page(path: &Path, kind: PageKind) -> Option<Page> {
-    let bytes = std::fs::read(path).ok()?;
-    let hash = blake3::hash(&bytes).to_hex();
-    let (width, height) = match kind {
-        PageKind::Svg => svg_size_px(&bytes),
-        PageKind::Png => (0.0, 0.0),
-    };
+/// Read an engraver SVG and rasterize it to a font-aware PNG. usvg (used by egui's SVG
+/// loader) cannot render the engravers' title text, but `rsvg-convert` (librsvg) can.
+/// Falls back to the raw SVG (music only, no text) if `rsvg-convert` is unavailable.
+fn read_page(svg_path: &Path) -> Option<Page> {
+    let svg = std::fs::read(svg_path).ok()?;
+    let (width, height) = svg_size_px(&svg);
+    if let Some(png) = rasterize_png(svg_path) {
+        let hash = blake3::hash(&png).to_hex();
+        return Some(Page {
+            uri: format!("bytes://{hash}.png"),
+            bytes: Arc::from(png.into_boxed_slice()),
+            kind: PageKind::Png,
+            width,
+            height,
+            render_scale: RENDER_SCALE,
+        });
+    }
+    let hash = blake3::hash(&svg).to_hex();
     Some(Page {
-        uri: format!("bytes://{hash}.{}", kind.ext()),
-        bytes: Arc::from(bytes.into_boxed_slice()),
-        kind,
+        uri: format!("bytes://{hash}.svg"),
+        bytes: Arc::from(svg.into_boxed_slice()),
+        kind: PageKind::Svg,
         width,
         height,
+        render_scale: 1.0,
     })
+}
+
+/// Rasterize an SVG to PNG bytes with `rsvg-convert` (librsvg is font-aware, at RENDER_SCALE×
+/// with a white "paper" background).
+fn rasterize_png(svg_path: &Path) -> Option<Vec<u8>> {
+    let png_path = svg_path.with_extension("png");
+    let ok = Command::new("rsvg-convert")
+        .arg("-z")
+        .arg(format!("{RENDER_SCALE}"))
+        .arg("-b")
+        .arg("white")
+        .arg("-o")
+        .arg(&png_path)
+        .arg(svg_path)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    ok.then(|| std::fs::read(&png_path).ok()).flatten()
 }
 
 /// Parse the root `<svg>` width/height into pixels. usvg (egui's SVG loader) converts

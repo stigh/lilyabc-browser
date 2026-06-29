@@ -251,6 +251,8 @@ impl App {
                     }
                     ZoomMode::FitWidth => zoom,
                 };
+                // PNG pages are rasterized at render_scale×; divide back to natural zoom.
+                let display_scale = scale / page.render_scale.max(0.01);
                 let source = egui::ImageSource::Bytes {
                     uri: page.uri.clone().into(),
                     bytes: egui::load::Bytes::Shared(page.bytes.clone()),
@@ -261,7 +263,7 @@ impl App {
                     .fill(egui::Color32::WHITE)
                     .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
-                        ui.add(egui::Image::new(source).fit_to_original_size(scale));
+                        ui.add(egui::Image::new(source).fit_to_original_size(display_scale));
                     });
                 ui.add_space(8.0);
             }

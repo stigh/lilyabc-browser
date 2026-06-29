@@ -42,6 +42,7 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
         lilypond \
         abcm2ps \
+        librsvg2-bin \
         libfontconfig1 \
         libxcb1 libxcb-render0 libxcb-shape0 libxcb-xfixes0 \
         libxkbcommon0 libxkbcommon-x11-0 \

@@ -37,7 +37,8 @@ pub fn scan(root: &Path) -> Vec<FileEntry> {
         let content = std::fs::read_to_string(&path).unwrap_or_default();
         let (title, tunes) = match format {
             Format::Abc => (file_name(&path), parse_abc_tunes(&content)),
-            Format::LilyPond => (lilypond_title(&content, &path), Vec::new()),
+            // Show the file name in the browser; the engraved score carries the title.
+            Format::LilyPond => (file_name(&path), Vec::new()),
         };
         out.push(FileEntry {
             path,
@@ -90,27 +91,6 @@ fn parse_abc_tunes(content: &str) -> Vec<Tune> {
         }
     }
     tunes
-}
-
-/// Best-effort extraction of `title = "..."` from a LilyPond `\header` block.
-fn lilypond_title(content: &str, path: &Path) -> String {
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(pos) = line.find("title") {
-            let after = &line[pos + "title".len()..];
-            // expect `= "Some Title"`
-            if let Some(q1) = after.find('"') {
-                let rest = &after[q1 + 1..];
-                if let Some(q2) = rest.find('"') {
-                    let title = rest[..q2].trim();
-                    if !title.is_empty() {
-                        return title.to_string();
-                    }
-                }
-            }
-        }
-    }
-    file_name(path)
 }
 
 /// A node in the browsed directory tree. Built only from supported files, so directories
@@ -195,9 +175,4 @@ mod tests {
         assert_eq!(tunes[0].title, "Tune 7");
     }
 
-    #[test]
-    fn lilypond_header_title() {
-        let ly = "\\header {\n  title = \"My Score\"\n}\n{ c d e f }";
-        assert_eq!(lilypond_title(ly, Path::new("x.ly")), "My Score");
-    }
 }

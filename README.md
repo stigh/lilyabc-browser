@@ -16,8 +16,9 @@ At **runtime** the app invokes these binaries (they are *not* bundled into the b
 
 - [`lilypond`](https://lilypond.org/) — renders `.ly`
 - [`abcm2ps`](https://github.com/lewdlume/abcm2ps) — renders `.abc`
+- `rsvg-convert` (librsvg) — rasterizes the engraver SVG (font-aware, so titles/text render)
 
-On Debian/Ubuntu: `sudo apt install lilypond abcm2ps`.
+On Debian/Ubuntu: `sudo apt install lilypond abcm2ps librsvg2-bin`.
 
 ## Build
 
