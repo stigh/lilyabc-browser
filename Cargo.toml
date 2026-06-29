@@ -1,0 +1,28 @@
+[package]
+name = "lilyabc-browser"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Browse and view LilyPond (.ly) and ABC (.abc) sheet music"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+eframe = "0.35"
+egui_extras = { version = "0.35", features = ["svg", "image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+resvg = "0.47"
+walkdir = "2"
+rfd = "0.17"
+blake3 = "1"
+which = "8"
+lru = "0.18"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[profile.dev]
+opt-level = 1        # keep the GUI responsive in debug builds
+
+[profile.release]
+opt-level = 3
+lto = "thin"

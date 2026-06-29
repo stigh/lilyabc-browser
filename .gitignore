@@ -1,0 +1,8 @@
+/target
+/lilyabc-browser
+**/*.rs.bk
+*.pdf
+*.png
+*.svg
+*.ps
+!samples/**
