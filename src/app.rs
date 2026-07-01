@@ -61,7 +61,7 @@ impl App {
             latest_id: 0,
             rendering: false,
             zoom: 1.0,
-            zoom_mode: ZoomMode::Manual,
+            zoom_mode: ZoomMode::FitWidth,
             status: String::new(),
             last_edit_at: 0.0,
             pending_edit: false,
@@ -383,43 +383,45 @@ impl eframe::App for App {
                     .show(ui, |ui| self.tree_ui(ui));
             });
 
-        egui::Panel::right("score")
+        // Editor lives in a resizable right panel; the score gets the large central area.
+        egui::Panel::right("editor")
             .resizable(true)
-            .default_size(560.0)
+            .default_size(420.0)
             .show(ui, |ui| {
-                ui.heading("Score");
+                ui.heading("Source");
                 ui.separator();
-                self.score_ui(ui);
+                if !self.messages.is_empty() {
+                    egui::CollapsingHeader::new("Engraver messages")
+                        .default_open(!self.output.as_ref().map(|o| o.ok).unwrap_or(true))
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(self.messages.as_str()).monospace());
+                        });
+                    ui.separator();
+                }
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(&mut self.source)
+                                .code_editor()
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(24)
+                                .hint_text("Select a file, or paste LilyPond / ABC here"),
+                        );
+                        if resp.changed() {
+                            self.last_edit_at = ui.input(|i| i.time);
+                            self.pending_edit = true;
+                            ui.ctx().request_repaint_after(
+                                std::time::Duration::from_millis(DEBOUNCE_MS),
+                            );
+                        }
+                    });
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("Source");
+            ui.heading("Score");
             ui.separator();
-            if !self.messages.is_empty() {
-                egui::CollapsingHeader::new("Engraver messages")
-                    .default_open(!self.output.as_ref().map(|o| o.ok).unwrap_or(true))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(self.messages.as_str()).monospace());
-                    });
-                ui.separator();
-            }
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(&mut self.source)
-                            .code_editor()
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(24)
-                            .hint_text("Select a file, or paste LilyPond / ABC here"),
-                    );
-                    if resp.changed() {
-                        self.last_edit_at = ui.input(|i| i.time);
-                        self.pending_edit = true;
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_millis(DEBOUNCE_MS));
-                    }
-                });
+            self.score_ui(ui);
         });
     }
 }
