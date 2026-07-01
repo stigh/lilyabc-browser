@@ -6,9 +6,14 @@ It does not engrave music itself — it shells out to the canonical engravers
 (`lilypond`, `abcm2ps`) and displays their rendered output, with async rendering and a
 content-hash cache. Built in Rust with [`egui`](https://github.com/emilk/egui).
 
-## Status
+## Features
 
-Early development. See [`docs`/plan] for the milestone roadmap (M0 scaffold → M6 polish).
+- Directory-tree browser; ABC files expand into their `X:`/`T:` tunes.
+- Search across file names, ABC tune titles, and LilyPond `\header` titles — the match is
+  revealed (expanded + scrolled to) in the tree.
+- Renders both formats to sheet music, with the engraver-drawn titles/text included.
+- Live source editing with debounced re-render; fit-width / manual zoom; async rendering
+  with a content-hash cache.
 
 ## Requirements
 
