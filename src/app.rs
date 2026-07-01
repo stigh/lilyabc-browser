@@ -351,8 +351,18 @@ impl eframe::App for App {
                 }
                 if ui.button("Rescan").clicked() {
                     if let Some(folder) = self.folder.clone() {
+                        // Remember the selected file by path so re-sorting can't misdirect Save.
+                        let prev = self.selection.and_then(|s| {
+                            self.entries.get(s.entry).map(|e| (e.path.clone(), s.tune))
+                        });
                         self.entries = index::scan(&folder);
                         self.tree = index::build_tree(&folder, &self.entries);
+                        self.selection = prev.and_then(|(path, tune)| {
+                            self.entries
+                                .iter()
+                                .position(|e| e.path == path)
+                                .map(|entry| Selection { entry, tune })
+                        });
                         self.status = format!("Rescanned: {} file(s)", self.entries.len());
                     }
                 }
