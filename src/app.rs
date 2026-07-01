@@ -2,6 +2,7 @@
 //! status/diagnostics (bottom). Selecting a file or tune submits an async render job.
 
 use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 use eframe::egui;
 
@@ -25,9 +26,34 @@ enum ZoomMode {
     FitWidth,
 }
 
+/// What to do once a background folder scan finishes.
+enum AfterScan {
+    /// Manual "Open Folder": leave nothing selected.
+    Nothing,
+    /// Auto-select and render the first entry (opening a directory on startup).
+    SelectFirst,
+    /// Select and render a specific file (opening a file path directly).
+    SelectPath(PathBuf),
+    /// Rescan: re-locate the previously selected file by path (no re-render).
+    Reselect(Option<(PathBuf, Option<u32>)>),
+}
+
+/// Result of a background folder scan, delivered back to the UI thread.
+struct ScanResult {
+    seq: u64,
+    folder: PathBuf,
+    entries: Vec<FileEntry>,
+    tree: DirNode,
+    after: AfterScan,
+}
+
 pub struct App {
     worker: RenderWorker,
     egui_ctx: egui::Context,
+    scan_tx: Sender<ScanResult>,
+    scan_rx: Receiver<ScanResult>,
+    scanning: bool,
+    scan_seq: u64,
     folder: Option<PathBuf>,
     entries: Vec<FileEntry>,
     tree: DirNode,
@@ -48,9 +74,14 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
+        let (scan_tx, scan_rx) = channel();
         let mut app = Self {
             worker: RenderWorker::spawn(cc.egui_ctx.clone()),
             egui_ctx: cc.egui_ctx.clone(),
+            scan_tx,
+            scan_rx,
+            scanning: false,
+            scan_seq: 0,
             folder: None,
             entries: Vec::new(),
             tree: DirNode::default(),
@@ -77,40 +108,86 @@ impl App {
     /// Open a folder, or a single file (opens its parent folder and selects it).
     fn open_path(&mut self, path: PathBuf) {
         if path.is_dir() {
-            self.open_folder(path, true);
+            self.start_scan(path, true, AfterScan::SelectFirst);
         } else if path.is_file() {
             if let Some(parent) = path.parent() {
-                self.open_folder(parent.to_path_buf(), false);
-                if let Some(i) = self.entries.iter().position(|e| e.path == path) {
-                    self.select(i, None);
-                }
+                self.start_scan(parent.to_path_buf(), true, AfterScan::SelectPath(path));
             }
         } else {
             self.status = format!("Path not found: {}", path.display());
         }
     }
 
-    fn open_folder(&mut self, path: PathBuf, auto_select: bool) {
-        self.entries = index::scan(&path);
-        self.tree = index::build_tree(&path, &self.entries);
-        self.status = format!("{} file(s) in {}", self.entries.len(), path.display());
-        self.folder = Some(path);
-        self.selection = None;
-        self.replace_output(None);
-        self.messages.clear();
-        self.source.clear();
-        self.source_loaded = false;
-        // Drop any in-flight render from the previous folder (so it can't apply later).
-        self.next_id += 1;
-        self.latest_id = self.next_id;
-        self.rendering = false;
-        if auto_select {
-            let tune = self
-                .entries
-                .first()
-                .and_then(|e| e.tunes.first().map(|t| t.number));
-            if !self.entries.is_empty() {
-                self.select(0, tune);
+    /// Start scanning `folder` off the UI thread (scanning ~hundreds of files reads+parses
+    /// each, which would otherwise freeze the render loop). `reset` clears the current view
+    /// immediately (a new folder); leave it false to keep the view while the list refreshes.
+    fn start_scan(&mut self, folder: PathBuf, reset: bool, after: AfterScan) {
+        if reset {
+            self.selection = None;
+            self.replace_output(None);
+            self.messages.clear();
+            self.source.clear();
+            self.source_loaded = false;
+            self.entries.clear();
+            self.tree = DirNode::default();
+            // Drop any in-flight render from the previous folder.
+            self.next_id += 1;
+            self.latest_id = self.next_id;
+            self.rendering = false;
+        }
+        self.scan_seq += 1;
+        let seq = self.scan_seq;
+        self.scanning = true;
+        self.status = format!("Scanning {}…", folder.display());
+        let tx = self.scan_tx.clone();
+        let ctx = self.egui_ctx.clone();
+        std::thread::spawn(move || {
+            let entries = index::scan(&folder);
+            let tree = index::build_tree(&folder, &entries);
+            let _ = tx.send(ScanResult {
+                seq,
+                folder,
+                entries,
+                tree,
+                after,
+            });
+            ctx.request_repaint();
+        });
+    }
+
+    /// Apply a finished scan (ignoring superseded ones) and run its follow-up action.
+    fn apply_scan(&mut self, r: ScanResult) {
+        if r.seq != self.scan_seq {
+            return; // a newer scan superseded this one
+        }
+        self.scanning = false;
+        self.entries = r.entries;
+        self.tree = r.tree;
+        self.status = format!("{} file(s) in {}", self.entries.len(), r.folder.display());
+        self.folder = Some(r.folder);
+        match r.after {
+            AfterScan::Nothing => {}
+            AfterScan::SelectFirst => {
+                let tune = self
+                    .entries
+                    .first()
+                    .and_then(|e| e.tunes.first().map(|t| t.number));
+                if !self.entries.is_empty() {
+                    self.select(0, tune);
+                }
+            }
+            AfterScan::SelectPath(path) => {
+                if let Some(i) = self.entries.iter().position(|e| e.path == path) {
+                    self.select(i, None);
+                }
+            }
+            AfterScan::Reselect(prev) => {
+                self.selection = prev.and_then(|(path, tune)| {
+                    self.entries
+                        .iter()
+                        .position(|e| e.path == path)
+                        .map(|entry| Selection { entry, tune })
+                });
             }
         }
     }
@@ -222,7 +299,11 @@ impl App {
 
     fn tree_ui(&mut self, ui: &mut egui::Ui) {
         if self.entries.is_empty() {
-            ui.label("(open a folder of .ly / .abc files)");
+            ui.label(if self.scanning {
+                "Scanning…"
+            } else {
+                "(open a folder of .ly / .abc files)"
+            });
             return;
         }
         let mut clicked: Option<(usize, Option<u32>)> = None;
@@ -354,6 +435,11 @@ impl eframe::App for App {
             }
         }
 
+        // Absorb finished folder scans (off the UI thread).
+        for r in self.scan_rx.try_iter().collect::<Vec<_>>() {
+            self.apply_scan(r);
+        }
+
         // Debounced live re-render: fire once the user pauses typing.
         if self.pending_edit {
             let now = ui.input(|i| i.time);
@@ -367,7 +453,7 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 if ui.button("Open Folder…").clicked() {
                     if let Some(p) = rfd::FileDialog::new().pick_folder() {
-                        self.open_folder(p, false);
+                        self.start_scan(p, true, AfterScan::Nothing);
                     }
                 }
                 if ui.button("Rescan").clicked() {
@@ -376,15 +462,7 @@ impl eframe::App for App {
                         let prev = self.selection.and_then(|s| {
                             self.entries.get(s.entry).map(|e| (e.path.clone(), s.tune))
                         });
-                        self.entries = index::scan(&folder);
-                        self.tree = index::build_tree(&folder, &self.entries);
-                        self.selection = prev.and_then(|(path, tune)| {
-                            self.entries
-                                .iter()
-                                .position(|e| e.path == path)
-                                .map(|entry| Selection { entry, tune })
-                        });
-                        self.status = format!("Rescanned: {} file(s)", self.entries.len());
+                        self.start_scan(folder, false, AfterScan::Reselect(prev));
                     }
                 }
                 if ui.button("Reload").clicked() {
@@ -413,10 +491,10 @@ impl eframe::App for App {
                 } else {
                     format!("{:.0}%", self.zoom * 100.0)
                 });
-                if self.rendering {
+                if self.rendering || self.scanning {
                     ui.separator();
                     ui.spinner();
-                    ui.label("rendering…");
+                    ui.label(if self.scanning { "scanning…" } else { "rendering…" });
                 }
             });
         });
