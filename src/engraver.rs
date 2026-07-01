@@ -6,7 +6,8 @@
 //!   * `lilypond -dbackend=svg -dcrop -dno-point-and-click -o BASE IN.ly` → `BASE.cropped.svg`
 //!   * `abcm2ps -g -O BASE IN.abc` → `BASE001.svg`, `BASE002.svg`, … (one per tune)
 //!
-//! Both produce path-based SVG (no embedded music font), which `resvg` renders faithfully.
+//! Both produce path-based SVG; the worker rasterizes it to PNG with `rsvg-convert` (librsvg)
+//! so the engravers' title text renders — egui's built-in usvg SVG loader drops that text.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
