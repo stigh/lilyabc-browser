@@ -65,7 +65,12 @@ fn worker_loop(jobs: Receiver<Job>, results: Sender<RenderResult>, ctx: egui::Co
     let mut cache: LruCache<[u8; 32], RenderOutput> =
         LruCache::new(NonZeroUsize::new(CACHE_CAP).unwrap());
 
-    while let Ok(job) = jobs.recv() {
+    while let Ok(mut job) = jobs.recv() {
+        // Coalesce: skip straight to the newest queued job (the UI discards superseded
+        // results anyway), avoiding wasted multi-second engraver runs on rapid clicks/edits.
+        while let Ok(next) = jobs.try_recv() {
+            job = next;
+        }
         let key = cache_key(&job.req);
         let output = if let Some(hit) = cache.get(&key) {
             hit.clone() // identical content already rendered — skip the engraver
