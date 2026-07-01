@@ -26,7 +26,7 @@ pub struct Tune {
 /// Recursively scan `root` for `.ly`/`.abc` files, sorted by path.
 pub fn scan(root: &Path) -> Vec<FileEntry> {
     let mut out = Vec::new();
-    for entry in WalkDir::new(root).follow_links(true).into_iter().flatten() {
+    for entry in WalkDir::new(root).follow_links(false).into_iter().flatten() {
         if !entry.file_type().is_file() {
             continue;
         }

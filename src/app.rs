@@ -100,6 +100,10 @@ impl App {
         self.messages.clear();
         self.source.clear();
         self.source_loaded = false;
+        // Drop any in-flight render from the previous folder (so it can't apply later).
+        self.next_id += 1;
+        self.latest_id = self.next_id;
+        self.rendering = false;
         if auto_select {
             let tune = self
                 .entries
