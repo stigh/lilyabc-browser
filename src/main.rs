@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-#![allow(dead_code)] // some fields/paths are filled in across milestones
 //! lilyabc-browser — a desktop browser/viewer for LilyPond (.ly) and ABC (.abc)
 //! sheet music. It does not engrave music itself; it shells out to the canonical
 //! engravers (`lilypond`, `abcm2ps`) and displays their rendered output.

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::model::{Format, Page, PageKind, RenderOutput, RENDER_SCALE};
+use crate::model::{Format, Page, RenderOutput, RENDER_SCALE};
 
 /// A single render request. The source text is rendered (rather than the file on disk) so
 /// the same path serves both the file viewer and the live-edit buffer.
@@ -136,15 +136,13 @@ fn collect_svgs(dir: &Path) -> Vec<PathBuf> {
 /// Falls back to the raw SVG (music only, no text) if `rsvg-convert` is unavailable.
 fn read_page(svg_path: &Path) -> Option<Page> {
     let svg = std::fs::read(svg_path).ok()?;
-    let (width, height) = svg_size_px(&svg);
+    let width = svg_width_px(&svg);
     if let Some(png) = rasterize_png(svg_path) {
         let hash = blake3::hash(&png).to_hex();
         return Some(Page {
             uri: format!("bytes://{hash}.png"),
             bytes: Arc::from(png.into_boxed_slice()),
-            kind: PageKind::Png,
             width,
-            height,
             render_scale: RENDER_SCALE,
         });
     }
@@ -152,9 +150,7 @@ fn read_page(svg_path: &Path) -> Option<Page> {
     Some(Page {
         uri: format!("bytes://{hash}.svg"),
         bytes: Arc::from(svg.into_boxed_slice()),
-        kind: PageKind::Svg,
         width,
-        height,
         render_scale: 1.0,
     })
 }
@@ -177,11 +173,11 @@ fn rasterize_png(svg_path: &Path) -> Option<Vec<u8>> {
     ok.then(|| std::fs::read(&png_path).ok()).flatten()
 }
 
-/// Parse the root `<svg>` width/height into pixels. usvg (egui's SVG loader) converts
-/// physical units at 96 dpi, so matching that yields an exact fit-to-width scale.
-fn svg_size_px(bytes: &[u8]) -> (f32, f32) {
+/// Parse the root `<svg>` width into pixels. usvg (egui's SVG loader) converts physical
+/// units at 96 dpi, so matching that yields an exact fit-to-width scale.
+fn svg_width_px(bytes: &[u8]) -> f32 {
     let head = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]);
-    (attr_px(&head, "width"), attr_px(&head, "height"))
+    attr_px(&head, "width")
 }
 
 fn attr_px(s: &str, name: &str) -> f32 {

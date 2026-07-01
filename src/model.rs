@@ -24,30 +24,6 @@ impl Format {
             _ => None,
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Format::LilyPond => "LilyPond",
-            Format::Abc => "ABC",
-        }
-    }
-}
-
-/// How a rendered [`Page`]'s bytes are encoded. Mirrors the URI extension egui uses
-/// to pick an image loader.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PageKind {
-    Svg,
-    Png,
-}
-
-impl PageKind {
-    pub fn ext(self) -> &'static str {
-        match self {
-            PageKind::Svg => "svg",
-            PageKind::Png => "png",
-        }
-    }
 }
 
 /// One rendered page (LilyPond) or tune (ABC), as image bytes ready to hand to egui.
@@ -58,10 +34,8 @@ pub struct Page {
     /// whenever identical output is re-rendered.
     pub uri: String,
     pub bytes: Arc<[u8]>,
-    pub kind: PageKind,
-    /// Native size in px (from the SVG root, unit-converted at 96 dpi); 0.0 if unknown.
+    /// Native width in px (from the SVG root, unit-converted at 96 dpi); 0.0 if unknown.
     pub width: f32,
-    pub height: f32,
     /// egui's intrinsic px ÷ natural px (RENDER_SCALE for a rasterized PNG, 1.0 for raw SVG).
     pub render_scale: f32,
 }
