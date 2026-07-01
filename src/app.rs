@@ -33,6 +33,7 @@ pub struct App {
     tree: DirNode,
     selection: Option<Selection>,
     source: String,
+    source_loaded: bool,
     output: Option<RenderOutput>,
     messages: String,
     next_id: u64,
@@ -55,6 +56,7 @@ impl App {
             tree: DirNode::default(),
             selection: None,
             source: String::new(),
+            source_loaded: false,
             output: None,
             messages: String::new(),
             next_id: 0,
@@ -97,6 +99,7 @@ impl App {
         self.replace_output(None);
         self.messages.clear();
         self.source.clear();
+        self.source_loaded = false;
         if auto_select {
             let tune = self
                 .entries
@@ -112,9 +115,28 @@ impl App {
         let Some(e) = self.entries.get(entry) else {
             return;
         };
-        self.source = std::fs::read_to_string(&e.path).unwrap_or_default();
+        let path = e.path.clone();
         self.selection = Some(Selection { entry, tune });
-        self.render();
+        if self.load_source(&path) {
+            self.render();
+        }
+    }
+
+    /// Load a file into the editor buffer (lossy UTF-8). Returns false on read error and
+    /// leaves the buffer untouched, so a later Save cannot clobber an unreadable file.
+    fn load_source(&mut self, path: &std::path::Path) -> bool {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                self.source = String::from_utf8_lossy(&bytes).into_owned();
+                self.source_loaded = true;
+                true
+            }
+            Err(err) => {
+                self.status = format!("Cannot read {}: {err}", path.display());
+                self.source_loaded = false;
+                false
+            }
+        }
     }
 
     /// Submit a render of the current buffer/selection to the worker (latest-wins).
@@ -147,6 +169,10 @@ impl App {
             self.status = "Nothing selected to save".to_owned();
             return;
         };
+        if !self.source_loaded {
+            self.status = "Refusing to save: the file was not loaded successfully".to_owned();
+            return;
+        }
         if let Some(e) = self.entries.get(sel.entry) {
             match std::fs::write(&e.path, &self.source) {
                 Ok(()) => self.status = format!("Saved {}", e.path.display()),

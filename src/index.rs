@@ -34,9 +34,13 @@ pub fn scan(root: &Path) -> Vec<FileEntry> {
         let Some(format) = Format::from_path(&path) else {
             continue;
         };
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
         let (title, tunes) = match format {
-            Format::Abc => (file_name(&path), parse_abc_tunes(&content)),
+            Format::Abc => {
+                // Read leniently so Latin-1 / non-UTF8 ABC books still index their tunes.
+                let content =
+                    String::from_utf8_lossy(&std::fs::read(&path).unwrap_or_default()).into_owned();
+                (file_name(&path), parse_abc_tunes(&content))
+            }
             // Show the file name in the browser; the engraved score carries the title.
             Format::LilyPond => (file_name(&path), Vec::new()),
         };
