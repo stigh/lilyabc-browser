@@ -57,6 +57,9 @@ pub struct App {
     folder: Option<PathBuf>,
     entries: Vec<FileEntry>,
     tree: DirNode,
+    query: String,
+    focus_search: bool,
+    reveal: bool,
     selection: Option<Selection>,
     source: String,
     source_loaded: bool,
@@ -86,6 +89,9 @@ impl App {
             folder: None,
             entries: Vec::new(),
             tree: DirNode::default(),
+            query: String::new(),
+            focus_search: true,
+            reveal: false,
             selection: None,
             source: String::new(),
             source_loaded: false,
@@ -200,6 +206,7 @@ impl App {
         };
         let path = e.path.clone();
         self.selection = Some(Selection { entry, tune });
+        self.reveal = true;
         if self.load_source(&path) {
             self.render(false);
         }
@@ -309,9 +316,65 @@ impl App {
             return;
         }
         let mut clicked: Option<(usize, Option<u32>)> = None;
-        self.dir_ui(&self.tree, ui, &mut clicked);
+        if self.query.trim().is_empty() {
+            // After a selection (e.g. via search), reveal it: expand + scroll to the file.
+            let reveal = if self.reveal {
+                self.selection.map(|s| s.entry)
+            } else {
+                None
+            };
+            self.dir_ui(&self.tree, ui, &mut clicked, reveal);
+            self.reveal = false;
+        } else {
+            self.filtered_ui(ui, &mut clicked);
+        }
         if let Some((i, tune)) = clicked {
             self.select(i, tune);
+        }
+    }
+
+    /// Filtered results: files whose name matches, and tunes whose `T:`/`\header` title
+    /// matches, the query. Only matches are listed (flat, not the folder tree).
+    fn filtered_ui(&self, ui: &mut egui::Ui, clicked: &mut Option<(usize, Option<u32>)>) {
+        let q = self.query.to_lowercase();
+        let mut any = false;
+        for (i, e) in self.entries.iter().enumerate() {
+            let matching: Vec<_> = e
+                .tunes
+                .iter()
+                .filter(|t| t.title.to_lowercase().contains(&q))
+                .collect();
+            if !matching.is_empty() {
+                any = true;
+                for t in matching {
+                    let selected = matches!(
+                        self.selection,
+                        Some(s) if s.entry == i && s.tune == Some(t.number)
+                    );
+                    let label = format!("{}  ·  {}", t.title, e.title);
+                    if ui.selectable_label(selected, label).clicked() {
+                        *clicked = Some((i, Some(t.number)));
+                    }
+                }
+            } else if e.title.to_lowercase().contains(&q)
+                || e.header_title
+                    .as_deref()
+                    .is_some_and(|t| t.to_lowercase().contains(&q))
+            {
+                any = true;
+                let selected =
+                    matches!(self.selection, Some(s) if s.entry == i && s.tune.is_none());
+                let label = match &e.header_title {
+                    Some(h) => format!("{}  ·  {}", h, e.title),
+                    None => e.title.clone(),
+                };
+                if ui.selectable_label(selected, label).clicked() {
+                    *clicked = Some((i, None));
+                }
+            }
+        }
+        if !any {
+            ui.label("(no matches)");
         }
     }
 
@@ -321,56 +384,76 @@ impl App {
         node: &DirNode,
         ui: &mut egui::Ui,
         clicked: &mut Option<(usize, Option<u32>)>,
+        reveal: Option<usize>,
     ) {
         for sub in &node.dirs {
-            egui::CollapsingHeader::new(format!("{}/", sub.name))
+            let mut header = egui::CollapsingHeader::new(format!("{}/", sub.name))
                 .id_salt(("dir", sub.name.as_str()))
-                .default_open(false)
-                .show(ui, |ui| self.dir_ui(sub, ui, clicked));
+                .default_open(false);
+            // Expand folders on the path to a just-revealed file (keeps them open after).
+            if reveal.is_some_and(|idx| subtree_contains(sub, idx)) {
+                header = header.open(Some(true));
+            }
+            header.show(ui, |ui| self.dir_ui(sub, ui, clicked, reveal));
         }
         for &i in &node.files {
-            self.file_ui(i, ui, clicked);
+            self.file_ui(i, ui, clicked, reveal);
         }
     }
 
     /// Render a single file: a leaf for LilyPond, or an expandable tune list for ABC.
-    fn file_ui(&self, i: usize, ui: &mut egui::Ui, clicked: &mut Option<(usize, Option<u32>)>) {
+    fn file_ui(
+        &self,
+        i: usize,
+        ui: &mut egui::Ui,
+        clicked: &mut Option<(usize, Option<u32>)>,
+        reveal: Option<usize>,
+    ) {
         let Some(e) = self.entries.get(i) else {
             return;
         };
+        let scroll = reveal == Some(i);
         if e.tunes.is_empty() {
             let selected = matches!(self.selection, Some(s) if s.entry == i && s.tune.is_none());
-            if ui.selectable_label(selected, e.title.as_str()).clicked() {
+            let resp = ui.selectable_label(selected, e.title.as_str());
+            if resp.clicked() {
                 *clicked = Some((i, None));
             }
+            if scroll {
+                resp.scroll_to_me(Some(egui::Align::Center));
+            }
         } else {
-            // Bold the file name when the whole file (no specific tune) is selected.
-            let file_selected =
-                matches!(self.selection, Some(s) if s.entry == i && s.tune.is_none());
+            // Bold the file name whenever this file (whole-file or one of its tunes) is selected.
+            let file_selected = matches!(self.selection, Some(s) if s.entry == i);
             let title = if file_selected {
                 egui::RichText::new(e.title.as_str()).strong()
             } else {
                 egui::RichText::new(e.title.as_str())
             };
-            let resp = egui::CollapsingHeader::new(title)
-                .id_salt(("file", i))
-                .show(ui, |ui| {
-                    for t in &e.tunes {
-                        let selected = matches!(
-                            self.selection,
-                            Some(s) if s.entry == i && s.tune == Some(t.number)
-                        );
-                        if ui
-                            .selectable_label(selected, format!("{}. {}", t.number, t.title))
-                            .clicked()
-                        {
-                            *clicked = Some((i, Some(t.number)));
-                        }
+            let mut header = egui::CollapsingHeader::new(title).id_salt(("file", i));
+            if scroll {
+                header = header.open(Some(true)); // expand so the selected tune is visible
+            }
+            let resp = header.show(ui, |ui| {
+                for t in &e.tunes {
+                    let selected = matches!(
+                        self.selection,
+                        Some(s) if s.entry == i && s.tune == Some(t.number)
+                    );
+                    if ui
+                        .selectable_label(selected, format!("{}. {}", t.number, t.title))
+                        .clicked()
+                    {
+                        *clicked = Some((i, Some(t.number)));
                     }
-                });
+                }
+            });
             // Clicking the file row itself (not a tune) renders the whole file (all tunes).
             if resp.header_response.clicked() {
                 *clicked = Some((i, None));
+            }
+            if scroll {
+                resp.header_response.scroll_to_me(Some(egui::Align::Center));
             }
         }
     }
@@ -419,6 +502,11 @@ impl App {
             }
         });
     }
+}
+
+/// True if file index `idx` lives anywhere in `node`'s subtree (to expand its folder path).
+fn subtree_contains(node: &DirNode, idx: usize) -> bool {
+    node.files.contains(&idx) || node.dirs.iter().any(|d| subtree_contains(d, idx))
 }
 
 /// External tools we shell out to; returns a warning naming any missing from PATH, so a
@@ -545,6 +633,15 @@ impl eframe::App for App {
             .default_size(260.0)
             .show(ui, |ui| {
                 ui.heading("Files");
+                let search = ui.add(
+                    egui::TextEdit::singleline(&mut self.query)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("search tunes / files…"),
+                );
+                if self.focus_search {
+                    search.request_focus();
+                    self.focus_search = false;
+                }
                 ui.separator();
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])

@@ -11,8 +11,11 @@ use crate::model::Format;
 pub struct FileEntry {
     pub path: PathBuf,
     pub format: Format,
-    /// Display title (file name, or `\header` title for LilyPond).
+    /// File name, shown in the browser.
     pub title: String,
+    /// LilyPond `\header { title }` — searchable, since the title lives only in the content.
+    /// `None` for ABC, whose titles are the per-tune `T:` headers below.
+    pub header_title: Option<String>,
     /// ABC files are multi-tune containers; one entry per `X:` tune. Empty for LilyPond.
     pub tunes: Vec<Tune>,
 }
@@ -34,20 +37,19 @@ pub fn scan(root: &Path) -> Vec<FileEntry> {
         let Some(format) = Format::from_path(&path) else {
             continue;
         };
-        let (title, tunes) = match format {
-            Format::Abc => {
-                // Read leniently so Latin-1 / non-UTF8 ABC books still index their tunes.
-                let content =
-                    String::from_utf8_lossy(&std::fs::read(&path).unwrap_or_default()).into_owned();
-                (file_name(&path), parse_abc_tunes(&content))
-            }
-            // Show the file name in the browser; the engraved score carries the title.
-            Format::LilyPond => (file_name(&path), Vec::new()),
+        // Read leniently (Latin-1 / non-UTF8 tolerant) so we can index tunes and search titles.
+        let content =
+            String::from_utf8_lossy(&std::fs::read(&path).unwrap_or_default()).into_owned();
+        let (header_title, tunes) = match format {
+            Format::Abc => (None, parse_abc_tunes(&content)),
+            Format::LilyPond => (lilypond_title(&content), Vec::new()),
         };
+        let title = file_name(&path);
         out.push(FileEntry {
             path,
             format,
             title,
+            header_title,
             tunes,
         });
     }
@@ -60,6 +62,26 @@ fn file_name(path: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("?")
         .to_string()
+}
+
+/// Extract `title = "..."` from a LilyPond `\header` block, for search. `None` if absent.
+fn lilypond_title(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(pos) = line.find("title") {
+            let after = &line[pos + "title".len()..];
+            if let Some(q1) = after.find('"') {
+                let rest = &after[q1 + 1..];
+                if let Some(q2) = rest.find('"') {
+                    let title = rest[..q2].trim();
+                    if !title.is_empty() {
+                        return Some(title.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Parse the `X:` / `T:` headers of an ABC file into a per-tune index. The first `T:`
