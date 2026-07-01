@@ -68,6 +68,7 @@ pub struct App {
     zoom: f32,
     zoom_mode: ZoomMode,
     status: String,
+    tool_warning: Option<String>,
     last_edit_at: f64,
     pending_edit: bool,
 }
@@ -96,6 +97,7 @@ impl App {
             zoom: 1.0,
             zoom_mode: ZoomMode::FitWidth,
             status: String::new(),
+            tool_warning: missing_tools(),
             last_edit_at: 0.0,
             pending_edit: false,
         };
@@ -419,6 +421,27 @@ impl App {
     }
 }
 
+/// External tools we shell out to; returns a warning naming any missing from PATH, so a
+/// broken install is visible instead of producing silently-blank output.
+fn missing_tools() -> Option<String> {
+    let missing: Vec<&str> = [
+        ("lilypond", "lilypond"),
+        ("abcm2ps", "abcm2ps"),
+        ("rsvg-convert", "librsvg2-bin"),
+    ]
+    .into_iter()
+    .filter_map(|(bin, pkg)| which::which(bin).is_err().then_some(pkg))
+    .collect();
+    if missing.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Missing: {} — install to render scores/titles",
+            missing.join(", ")
+        ))
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Absorb finished renders (keep only the newest).
@@ -500,10 +523,16 @@ impl eframe::App for App {
         });
 
         egui::Panel::bottom("status").show(ui, |ui| {
-            ui.label(if self.status.is_empty() {
-                "Ready"
-            } else {
-                self.status.as_str()
+            ui.horizontal(|ui| {
+                if let Some(w) = &self.tool_warning {
+                    ui.colored_label(egui::Color32::from_rgb(220, 120, 40), w);
+                    ui.separator();
+                }
+                ui.label(if self.status.is_empty() {
+                    "Ready"
+                } else {
+                    self.status.as_str()
+                });
             });
         });
 
