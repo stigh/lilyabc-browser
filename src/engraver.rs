@@ -24,6 +24,8 @@ pub struct RenderRequest {
     pub base_dir: PathBuf,
     /// For multi-tune ABC files, render only this 1-based tune; `None` renders all tunes.
     pub tune: Option<u32>,
+    /// Bypass the worker's render cache (used by Reload to pick up external edits).
+    pub force: bool,
 }
 
 /// The output stem used for engraver products inside the scratch dir.

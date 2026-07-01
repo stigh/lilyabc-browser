@@ -118,7 +118,22 @@ impl App {
         let path = e.path.clone();
         self.selection = Some(Selection { entry, tune });
         if self.load_source(&path) {
-            self.render();
+            self.render(false);
+        }
+    }
+
+    /// Re-read the selected file from disk and force a fresh render (bypasses the cache,
+    /// so external edits — including `\include` targets — are picked up).
+    fn reload(&mut self) {
+        let Some(sel) = self.selection else {
+            return;
+        };
+        let Some(e) = self.entries.get(sel.entry) else {
+            return;
+        };
+        let path = e.path.clone();
+        if self.load_source(&path) {
+            self.render(true);
         }
     }
 
@@ -140,7 +155,8 @@ impl App {
     }
 
     /// Submit a render of the current buffer/selection to the worker (latest-wins).
-    fn render(&mut self) {
+    /// `force` bypasses the worker's render cache (used by Reload).
+    fn render(&mut self, force: bool) {
         let Some(sel) = self.selection else {
             return;
         };
@@ -157,6 +173,7 @@ impl App {
             source: self.source.clone(),
             base_dir,
             tune: sel.tune,
+            force,
         };
         self.next_id += 1;
         self.latest_id = self.next_id;
@@ -338,7 +355,7 @@ impl eframe::App for App {
             let now = ui.input(|i| i.time);
             if now - self.last_edit_at >= DEBOUNCE_MS as f64 / 1000.0 {
                 self.pending_edit = false;
-                self.render();
+                self.render(false);
             }
         }
 
@@ -367,7 +384,7 @@ impl eframe::App for App {
                     }
                 }
                 if ui.button("Reload").clicked() {
-                    self.render();
+                    self.reload();
                 }
                 if ui.button("Save").clicked() {
                     self.save();

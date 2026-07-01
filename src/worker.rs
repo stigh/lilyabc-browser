@@ -72,8 +72,9 @@ fn worker_loop(jobs: Receiver<Job>, results: Sender<RenderResult>, ctx: egui::Co
             job = next;
         }
         let key = cache_key(&job.req);
-        let output = if let Some(hit) = cache.get(&key) {
-            hit.clone() // identical content already rendered — skip the engraver
+        let cached = if job.req.force { None } else { cache.get(&key).cloned() };
+        let output = if let Some(hit) = cached {
+            hit // identical content already rendered — skip the engraver
         } else {
             let work = scratch_root.join(format!("job-{}", job.id));
             let _ = std::fs::create_dir_all(&work);
