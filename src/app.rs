@@ -27,6 +27,7 @@ enum ZoomMode {
 
 pub struct App {
     worker: RenderWorker,
+    egui_ctx: egui::Context,
     folder: Option<PathBuf>,
     entries: Vec<FileEntry>,
     tree: DirNode,
@@ -48,6 +49,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
         let mut app = Self {
             worker: RenderWorker::spawn(cc.egui_ctx.clone()),
+            egui_ctx: cc.egui_ctx.clone(),
             folder: None,
             entries: Vec::new(),
             tree: DirNode::default(),
@@ -92,7 +94,7 @@ impl App {
         self.status = format!("{} file(s) in {}", self.entries.len(), path.display());
         self.folder = Some(path);
         self.selection = None;
-        self.output = None;
+        self.replace_output(None);
         self.messages.clear();
         self.source.clear();
         if auto_select {
@@ -151,6 +153,24 @@ impl App {
                 Err(err) => self.status = format!("Save failed: {err}"),
             }
         }
+    }
+
+    /// Replace the rendered output, freeing egui's cached image/texture entries for pages no
+    /// longer shown. egui retains every `bytes://<hash>` URI it is given and never evicts on
+    /// its own, so without this, browsing / live-editing grows CPU+GPU memory without bound.
+    fn replace_output(&mut self, new: Option<RenderOutput>) {
+        if let Some(old) = self.output.take() {
+            let keep: std::collections::HashSet<&str> = new
+                .as_ref()
+                .map(|o| o.pages.iter().map(|p| p.uri.as_str()).collect())
+                .unwrap_or_default();
+            for p in &old.pages {
+                if !keep.contains(p.uri.as_str()) {
+                    self.egui_ctx.forget_image(&p.uri);
+                }
+            }
+        }
+        self.output = new;
     }
 
     fn tree_ui(&mut self, ui: &mut egui::Ui) {
@@ -283,7 +303,7 @@ impl eframe::App for App {
                 } else {
                     "Render failed — see messages below".to_owned()
                 };
-                self.output = Some(res.output);
+                self.replace_output(Some(res.output));
             }
         }
 
