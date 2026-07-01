@@ -72,7 +72,11 @@ fn worker_loop(jobs: Receiver<Job>, results: Sender<RenderResult>, ctx: egui::Co
             job = next;
         }
         let key = cache_key(&job.req);
-        let cached = if job.req.force { None } else { cache.get(&key).cloned() };
+        let cached = if job.req.force {
+            None
+        } else {
+            cache.get(&key).cloned()
+        };
         let output = if let Some(hit) = cached {
             hit // identical content already rendered — skip the engraver
         } else {

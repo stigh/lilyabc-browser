@@ -517,7 +517,11 @@ impl eframe::App for App {
                 if self.rendering || self.scanning {
                     ui.separator();
                     ui.spinner();
-                    ui.label(if self.scanning { "scanning…" } else { "rendering…" });
+                    ui.label(if self.scanning {
+                        "scanning…"
+                    } else {
+                        "rendering…"
+                    });
                 }
             });
         });
@@ -575,9 +579,10 @@ impl eframe::App for App {
                         if resp.changed() {
                             self.last_edit_at = ui.input(|i| i.time);
                             self.pending_edit = true;
-                            ui.ctx().request_repaint_after(
-                                std::time::Duration::from_millis(DEBOUNCE_MS),
-                            );
+                            ui.ctx()
+                                .request_repaint_after(std::time::Duration::from_millis(
+                                    DEBOUNCE_MS,
+                                ));
                         }
                     });
             });

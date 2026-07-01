@@ -151,8 +151,7 @@ fn insert(node: &mut DirNode, comps: &[String], file_idx: usize) {
 }
 
 fn sort_tree(node: &mut DirNode) {
-    node.dirs
-        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    node.dirs.sort_by_key(|d| d.name.to_lowercase());
     for d in &mut node.dirs {
         sort_tree(d);
     }
@@ -178,5 +177,4 @@ mod tests {
         assert_eq!(tunes.len(), 1);
         assert_eq!(tunes[0].title, "Tune 7");
     }
-
 }
